@@ -29,7 +29,7 @@ from re import compile, search
 
 from bs4 import BeautifulSoup, NavigableString, SoupStrainer
 from requests import Session
-from requests.exceptions import ConnectTimeout, SSLError
+from requests.exceptions import RequestException
 from xbmcext import getAddonPath, getLocalizedString, urlparse
 from xbmcext.pymaybe import maybe
 
@@ -45,14 +45,24 @@ class Request(object):
 
     @classmethod
     def get(cls, path):
+        # A discontinued/unreachable provider should fail promptly rather than
+        # leaving Kodi waiting on an unbounded HTTP request.
+        if not isinstance(path, str) or not path.startswith('/'):
+            raise ConnectionError(getLocalizedString(33504))
+
         for domain in cls.domains:
             try:
-                response = cls.session.get('https://{}{}'.format(domain, path))
-
+                response = cls.session.get(
+                    'https://{}{}'.format(domain, path),
+                    timeout=(5, 12),
+                    allow_redirects=True
+                )
                 if response.status_code == 200:
                     return response.text
-            except (ConnectTimeout, SSLError):
-                pass
+            except RequestException:
+                # Timeout, TLS, redirect and connection failures are all
+                # recoverable provider failures, not a Kodi UI crash.
+                continue
 
         raise ConnectionError(getLocalizedString(33504))
 
